@@ -57,15 +57,36 @@
       <div class="post-date">2026-02-27 · 预计阅读 13 分钟</div>
       <h1 class="post-title">Why Your AI Agents are Waiting: Breaking the Silent Bottleneck in LLM Inference</h1>
       
-      <div class="post-desc">Motivation</div>
+      <div class="post-desc">Multi-turn agentic LLM inference in layer-wise prefill 、PD disaggregated、KV Cache Storage architecture, KV-Cache storage I/O imbalance. Storage NICs on prefill engines became bandwidth-saturated, while those on decoding engines remain idle. This asymmetry constrains overall system throughput.</div>
     </div>
     <div class="divider"></div>
     <div class="prose" id="prose">
-<p><strong>Motivation</strong> Multi-turn agentic LLM inference in layer-wise prefill 、PD disaggregated、KV Cache Storage architecture, KV-Cache storage I/O imbalance. Storage NICs on prefill engines became bandwidth-saturated, while those on decoding engines remain idle. This asymmetry constrains overall system throughput. The idea is how to use decoding engines bandwidth. We call dual-path KV-Cache loading. The challenge is how to load across prefill and decoding engines to achieve dynamically balances.</p>
-<p><strong>Challenges</strong> 1、introducing an extra loading path introduces complex traffic patterns 2、online decision under dynamic and heterogeneous workloads, and ensure load balance across both GPU’s and NICs</p>
+<h1 id="Motivation">Motivation</h1>
+Multi-turn agentic LLM inference in layer-wise prefill 、PD disaggregated、KV Cache Storage architecture, KV-Cache storage I/O imbalance. Storage NICs on prefill engines became bandwidth-saturated, while those on decoding engines remain idle. This asymmetry constrains overall system throughput.
+The idea is how to use decoding engines bandwidth. We call dual-path KV-Cache loading. The challenge is how to load across prefill and decoding engines to achieve dynamically balances.
+<h1 id="Challenges">Challenges</h1>
+1、introducing an extra loading path introduces complex traffic patterns
+2、online decision under dynamic and heterogeneous workloads, and ensure load balance across both GPU’s and NICs
 <p><strong>Innovations</strong> 1、  identify the I/O-bound nature of multi-turn, agentic LLM workloads and show that KV-Cache loading dominates system performance under modern LLM inference architectures. 2、  Present Dual-Path, introduce dual-path kv-cache loading and leverage all engine to resolve prefill-side bottlenecks. 3、  Design and evaluate a workload-aware scheduling algorithm that dynamically balance computation and network resources.</p>
-<p><strong>Existed Solutions</strong> 1、  MoonCake: caches KV-Cache in a distributed DRAM pool and employs an affinity-aware scheduler to maximize the DRAM KV-Cache hit rate， but is can’t used in memory-constrained scenerios, such as the rollout phrase in RL, where DRAM is occupied to hold large training state that is offloaded from HBM. It is also not cost-effective in scenarios with enormous working sets (e.g., online serving), considering the cost comparison between DRAM and SSD https://arxiv.org/pdf/2407.00079 2、reduce the amount of KVCache data to retrieve and reduce the retrieval overhead，do not solve the inherent inefficiency caused by storage I/O imbalance between different engines https://arxiv.org/pdf/2410.05004 <strong>Takeaway 1 Transforming local bandwidth into“Global Pooled Resources”</strong> Key Technical Points: DE Buffer and HBM Efficiency DualPath introduces a dedicated DE Buffer on the DE side. This is not only for data transfer, but also a clever choice regarding HBM (video memory) utilization: by buffering data in DRAM, it significantly reduces the time to first word generation (TTFT) phase on precious GPU HBM, thereby supporting larger-scale concurrency.</p>
-<p><strong>Takeaway 2: Fine-grained Management: CNIC-Driven "Traffic Isolation"</strong> QoS Isolation: Utilizing Virtual Channel (VL) technology, inference computation communications are given the highest priority (99% bandwidth reserved), while KV-Cache transfers are placed in a low-priority position. RDMA Replaces CUDA Copy: Traditional cudaMemcpyAsync incurs a 5-7μs system overhead, while DualPath reduces this overhead to ~1μs by driving the CNIC for RDMA transfers. <strong> </strong> <strong>Takeaway 3: Intelligent Scheduling: Global Load Balancing Centered on "Token Count"</strong> DualPath monitors two dimensions of the cluster in real time: NIC traffic load and GPU utilization. The scheduler uses Token Count as a proxy metric for global load balancing. By dynamically allocating task quotas for PE and DE, the system ensures that no single node's network interface card becomes a bottleneck for overall performance. <strong>Conclusion: Beyond the Compute-First Mindset</strong> The era of solving performance problems by simply buying faster chips is over. The "Silent Bottleneck" of I/O has become the primary constraint for the next generation of agentic AI. As contexts grow from thousands to millions of tokens, we must move away from the traditional silos of "storage vs. compute." Every node in the data center must become an active, load-balanced participant in the memory hierarchy. The question for every systems architect is now: Is your infrastructure designed to think, or is it just designed to wait?</p>
+<h1 id="Existed-Solutions">Existed Solutions</h1>
+1、  MoonCake: caches KV-Cache in a distributed DRAM pool and employs an affinity-aware scheduler to maximize the DRAM KV-Cache hit rate， but is can’t used in memory-constrained scenerios, such as the rollout phrase in RL, where DRAM is occupied to hold large training state that is offloaded from HBM. It is also not cost-effective in scenarios with enormous working sets (e.g., online serving), considering the cost comparison between DRAM and SSD
+https://arxiv.org/pdf/2407.00079
+2、reduce the amount of KVCache data to retrieve and reduce the retrieval overhead，do not solve the inherent inefficiency caused by storage I/O imbalance between different engines
+https://arxiv.org/pdf/2410.05004
+<h1 id="Takeaways">Takeaways</h1>
+<h2 id="Takeaway-1-Transforming-local-bandwidth-into-Global-Pooled-R">Takeaway 1 Transforming local bandwidth into“Global Pooled Resources”</h2>
+Key Technical Points: DE Buffer and HBM Efficiency
+DualPath introduces a dedicated DE Buffer on the DE side. This is not only for data transfer, but also a clever choice regarding HBM (video memory) utilization: by buffering data in DRAM, it significantly reduces the time to first word generation (TTFT) phase on precious GPU HBM, thereby supporting larger-scale concurrency.
+<h2 id="Takeaway-2-Fine-grained-Management-CNIC-Driven-Traffic-Isola">Takeaway 2: Fine-grained Management: CNIC-Driven "Traffic Isolation"</h2>
+QoS Isolation: Utilizing Virtual Channel (VL) technology, inference computation communications are given the highest priority (99% bandwidth reserved), while KV-Cache transfers are placed in a low-priority position.
+RDMA Replaces CUDA Copy: Traditional cudaMemcpyAsync incurs a 5-7μs system overhead, while DualPath reduces this overhead to ~1μs by driving the CNIC for RDMA transfers.
+<strong> </strong>
+<h2 id="Takeaway-3-Intelligent-Scheduling-Global-Load-Balancing-Cent">Takeaway 3: Intelligent Scheduling: Global Load Balancing Centered on "Token Count"</h2>
+DualPath monitors two dimensions of the cluster in real time: NIC traffic load and GPU utilization. The scheduler uses Token Count as a proxy metric for global load balancing.
+By dynamically allocating task quotas for PE and DE, the system ensures that no single node's network interface card becomes a bottleneck for overall performance.
+<h1 id="Conclusion-Beyond-the-Compute-First-Mindset">Conclusion: Beyond the Compute-First Mindset</h1>
+The era of solving performance problems by simply buying faster chips is over. The "Silent Bottleneck" of I/O has become the primary constraint for the next generation of agentic AI.
+As contexts grow from thousands to millions of tokens, we must move away from the traditional silos of "storage vs. compute." Every node in the data center must become an active, load-balanced participant in the memory hierarchy. The question for every systems architect is now: Is your infrastructure designed to think, or is it just designed to wait?
 <p>link: https://arxiv.org/pdf/2602.21548</p>
     </div>
     <div class="divider"></div>
@@ -74,7 +95,13 @@
       <a href="index.html" style="color:var(--accent);text-decoration:none">← 返回文章列表</a>
     </div>
   </article>
-  <aside class="toc-sidebar"></aside>
+  <aside class="toc-sidebar">
+    <div class="toc-title">// 目录</div>
+    <ul class="toc-list">
+      <li class="toc-item"><a href="#Takeaway-1-Transforming-local-bandwidth-into-Global-Pooled-R">Takeaway 1 Transforming local bandwidth into“Global Pooled Resources”</a></li>
+<li class="toc-item"><a href="#Takeaway-2-Fine-grained-Management-CNIC-Driven-Traffic-Isola">Takeaway 2: Fine-grained Management: CNIC-Driven "Traffic Isolation"</a></li>
+<li class="toc-item"><a href="#Takeaway-3-Intelligent-Scheduling-Global-Load-Balancing-Cent">Takeaway 3: Intelligent Scheduling: Global Load Balancing Centered on "Token Count"</a></li>
+    </ul></aside>
 </div>
 <script>
   function toggleTheme(){const c=document.documentElement.getAttribute('data-theme');document.documentElement.setAttribute('data-theme',c==='dark'?'light':'dark');localStorage.setItem('theme',c==='dark'?'light':'dark')}
